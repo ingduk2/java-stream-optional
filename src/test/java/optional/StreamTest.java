@@ -3,6 +3,7 @@ package optional;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
@@ -90,11 +91,12 @@ public class StreamTest {
 
         //File -> Stream
         try {
-            Stream<String> lineStream = Files.lines(Paths.get("file.txt"), Charset.forName("UTF-8"));
-            System.out.println(lineStream.collect(Collectors.toList()));
-            assertThat(lineStream.collect(Collectors.toList()), contains("test"));
+            Stream<String> lineStream = Files.lines(Paths.get("file.txt"), StandardCharsets.UTF_8);
+            List<String> fileString = lineStream.collect(Collectors.toList());
+            System.out.println(fileString);
+            assertThat(fileString, contains("test"));
         } catch (Exception e) {
-
+            e.printStackTrace();
         }
 
         // two Stream merge
@@ -161,14 +163,13 @@ public class StreamTest {
 
         // 평균 계산
         OptionalDouble average = DoubleStream.of(1.1, 2.2, 3.3, 4.4, 5.5).average();
-        assertThat(3.3, equalTo(average.getAsDouble()));
+        assertThat(3.3, equalTo(average.isPresent() ? average.getAsDouble() : 0));
 
         // reduce - 컬렉션의 값 하나 하나를 꺼내 연산
-        OptionalInt reduced = IntStream.range(1, 4).reduce(
-                (a, b) -> {
-                    return Integer.sum(a, b);
-                });
-        assertThat(6, equalTo(reduced.getAsInt()));
+        OptionalInt reduced = IntStream.range(1, 4)
+//                .reduce((a, b) -> Integer.sum(a, b));
+                .reduce(Integer::sum);
+        assertThat(6, equalTo(reduced.isPresent() ? reduced.getAsInt() : 0));
 
         // reduce - 위 연산과 동일하나 초기값 지정하여 연산.
         int reduceTwoParam = IntStream.range(1, 4).reduce(10, Integer::sum);
@@ -176,10 +177,85 @@ public class StreamTest {
         assertThat(16, equalTo(reduceTwoParam));
 
         Integer reducedParallel = Arrays.asList(1, 2, 3, 4).parallelStream()
-                .reduce(10, Integer::sum, (a, b) -> {
-                    return a + b;
-                });
-        assertThat(50, equalTo(reducedParallel.intValue()));
+//                .reduce(10, Integer::sum, (a, b) -> a + b);
+                .reduce(10, Integer::sum, Integer::sum);
+        assertThat(50, equalTo(reducedParallel));
+
+        // Collecting
+        List<Product> productList =
+                Arrays.asList(
+                        new Product(23, "potatos"),
+                        new Product(14, "orange"),
+                        new Product(13, "lemon"),
+                        new Product(23, "bread"),
+                        new Product(13, "suger")
+                );
+
+        List<String> collectorCollection = productList.stream().map(Product::getName).collect(Collectors.toList());
+        assertThat(collectorCollection, contains("potatos", "orange", "lemon", "bread", "suger"));
+
+        // Joining
+        String listToString = productList.stream().map(Product::getName).collect(Collectors.joining());
+        assertThat(listToString, equalTo("potatosorangelemonbreadsuger"));
+
+        String listToString2 = productList.stream().map(Product::getName).collect(Collectors.joining(", ", "<", ">"));
+        assertThat(listToString2, equalTo("<potatos, orange, lemon, bread, suger>"));
+
+        // Average
+        Double averageAmount = productList.stream().collect(Collectors.averagingInt(Product::getAmount));
+        assertThat(averageAmount, equalTo(17.2));
+
+        // Sum
+        Integer sumAmount = productList.stream().collect(Collectors.summingInt(Product::getAmount));
+        assertThat(sumAmount, equalTo(86));
+
+        Integer sumAmount2 = productList.stream().mapToInt(Product::getAmount).sum();
+        assertThat(sumAmount, equalTo(86));
+
+        // Summary
+        IntSummaryStatistics statistics = productList.stream().collect(Collectors.summarizingInt(Product::getAmount));
+        assertThat(statistics.getAverage(), equalTo(17.2));
+        assertThat(statistics.getCount(), equalTo(5L));
+        assertThat(statistics.getMax(), equalTo(23));
+        assertThat(statistics.getMin(), equalTo(13));
+        assertThat(statistics.getSum(), equalTo(86L));
+
+        // Grouping
+        Map<Integer, List<Product>> collectorMapOfLists = productList.stream().collect(Collectors.groupingBy(Product::getAmount));
+        System.out.println("collectorMapOfLists = " + collectorMapOfLists);
+        assertThat(collectorMapOfLists.get(13).size(), equalTo(2));
+        assertThat(collectorMapOfLists.get(14).size(), equalTo(1));
+
+        // Partition
+        Map<Boolean, List<Product>> mapPartitioned = productList.stream().collect(Collectors.partitioningBy(el -> el.getAmount() > 15));
+        System.out.println("mapPartitioned = " + mapPartitioned);
+        assertThat(mapPartitioned.get(true).size(), equalTo(2));
+        assertThat(mapPartitioned.get(false).size(), equalTo(3));
+        
+        // unmodifiable Set Creation
+        Set<Product> unmodifiableSet = productList.stream().collect(Collectors.collectingAndThen(Collectors.toSet(), Collections::unmodifiableSet));
+        
+        // Collector.of
+        Collector<Product, ?, LinkedList<Product>> toLinkedList = 
+                Collector.of(LinkedList::new, LinkedList::add,
+                        (first, second) -> {
+                            first.addAll(second);
+                            return first;
+                        });
+        LinkedList<Product> linkedListOfPersons = productList.stream().collect(toLinkedList);
+        System.out.println("linkedListOfPersons = " + linkedListOfPersons);
+        System.out.println("productList = " + productList);
+
+        // matching
+        List<String> names = Arrays.asList("Eric", "Elena", "Java");
+        boolean anyMatch = names.stream().anyMatch(name -> name.contains("J"));
+        assertThat(anyMatch, equalTo(true));
+
+        boolean allMatch = names.stream().allMatch(name -> name.length() > 3);
+        assertThat(allMatch, equalTo(true));
+
+        boolean noneMatch = names.stream().noneMatch(name -> name.endsWith("s"));
+        assertThat(noneMatch, equalTo(true));
 
     }
 
@@ -206,6 +282,14 @@ public class StreamTest {
         public Product(int amount, String name) {
             this.amount = amount;
             this.name = name;
+        }
+
+        @Override
+        public String toString() {
+            return "Product{" +
+                    "amount=" + amount +
+                    ", name='" + name + '\'' +
+                    '}';
         }
     }
 
